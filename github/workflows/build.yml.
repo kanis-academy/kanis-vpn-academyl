@@ -1,0 +1,56 @@
+name: Build KANIS VPN ACADEMY APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "*.zip"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Recuperer le depot
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Extraire le projet
+        run: |
+          mkdir -p project
+          ZIP=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
+          test -n "$ZIP"
+          unzip -oq "$ZIP" -d project
+          APP=$(find project -name package.json -print -quit)
+          test -n "$APP"
+          echo "APP_DIR=$(dirname "$APP")" >> "$GITHUB_ENV"
+      - name: Installer Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Installer et preparer Capacitor
+        run: |
+          cd "$APP_DIR"
+          npm install
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npx cap add android
+          npx cap sync android
+      - name: Compiler APK
+        run: |
+          cd "$APP_DIR/android"
+          chmod +x gradlew
+          ./gradlew assembleDebug
+      - name: Publier le fichier APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KANIS-VPN-ACADEMY-APK
+          path: "**/android/app/build/outputs/apk/debug/*.apk"
+          if-no-files-found: error
+          
