@@ -1,56 +1,102 @@
-name: Build KANIS VPN ACADEMY APK
+
+name: KANIS - Build APK
 
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - "*.zip"
-      - ".github/workflows/build.yml"
+    branches:
+      - main
+      - master
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-apk:
+    name: Compiler KANIS
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
-      - name: Recuperer le depot
+      - name: Recuperer le projet
         uses: actions/checkout@v4
 
       - name: Installer Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Extraire le projet
-        run: |
-          mkdir -p project
-          ZIP=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
-          test -n "$ZIP"
-          unzip -oq "$ZIP" -d project
-          APP=$(find project -name package.json -print -quit)
-          test -n "$APP"
-          echo "APP_DIR=$(dirname "$APP")" >> "$GITHUB_ENV"
-      - name: Installer Java 21
+      - name: Installer Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: 21
 
-      - name: Installer et preparer Capacitor
+      - name: Installer Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Verifier les fichiers du projet
         run: |
-          cd "$APP_DIR"
-          npm install
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap add android
+          test -f package.json
+          test -f capacitor.config.json
+          test -f www/index.html
+          test -f www/js/kanis-backend.js
+          test -f www/js/config.js
+          test -f scripts/copy-vendor.js
+          test -f scripts/patch-android.js
+          test -f resources/icon-only.png
+          test -f resources/icon-foreground.png
+          test -f resources/icon-background.png
+          test -f resources/splash.png
+          test -f resources/splash-dark.png
+          grep -q "supabase.co" www/js/config.js
+          ! grep -rn "sb_secret_" www/
+
+      - name: Installer les dependances
+        run: npm install
+
+      - name: Generer la bibliotheque Supabase
+        run: |
+          npm run vendor
+          test -s www/js/vendor/supabase.js
+          echo "Bibliotheque Supabase generee avec succes"
+
+      - name: Verifier Supabase
+        run: |
+          ls -lh www/js/vendor/supabase.js
+          grep -n "vendor/supabase.js" www/index.html
+
+      - name: Creer le projet Android
+        run: npm run android:add
+
+      - name: Verifier le lien de connexion
+        run: |
+          test -f android/app/src/main/AndroidManifest.xml
+          grep -q 'android:scheme="kanisvpn"' android/app/src/main/AndroidManifest.xml
+
+      - name: Generer les icones et ecrans
+        run: npm run assets
+
+      - name: Synchroniser Capacitor
+        run: |
           npx cap sync android
+          test -s android/app/src/main/assets/public/js/vendor/supabase.js
+
       - name: Compiler APK
+        working-directory: android
         run: |
-          cd "$APP_DIR/android"
           chmod +x gradlew
-          ./gradlew assembleDebug
-      - name: Publier le fichier APK
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Verifier et renommer APK
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk KANIS.apk
+
+      - name: Publier KANIS APK
         uses: actions/upload-artifact@v4
         with:
-          name: KANIS-VPN-ACADEMY-APK
-          path: "**/android/app/build/outputs/apk/debug/*.apk"
+          name: KANIS-APK
+          path: KANIS.apk
           if-no-files-found: error
+          retention-days: 30
           
